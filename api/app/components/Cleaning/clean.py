@@ -4,7 +4,7 @@ from openai import OpenAI
 import os
 import pandas as pd
 from dotenv import load_dotenv
-from huggingface_hub import HfApi, HfFolder
+from huggingface_hub import HfApi,get_token
 import io
 
 load_dotenv()

@@ -21,6 +21,9 @@ from app.components.Cleaning.clean import clean_data
 from app.utils.session import SESSIONS
 from fastapi import Body    
 import json
+from fastapi.responses import FileResponse
+from huggingface_hub import hf_hub_download
+import os
 logger = setup_logger(__name__)
 
 router = APIRouter()
@@ -293,6 +296,7 @@ async def train_model(
              repo_type="dataset",                 # ✅ important (same repo type)
              commit_message=f"Trained model for session {session_id}"
          )
+           hf_download_url = f"https://huggingface.co/datasets/{repo_id}/resolve/main/{hf_filename}"
 
            hf_status = f"Model uploaded to Hugging Face: {repo_id}/{hf_filename}"
         except Exception as e:
@@ -304,6 +308,8 @@ async def train_model(
             "model_name": model_choice,
             "hyperparameters_used": final_params,
             "metrics": metrics,
+            "hf_filename" : hf_filename,
+            "huggingface_download_url": hf_download_url,
             "model_path": model_path.replace("\\", "/")
         }
 
@@ -359,3 +365,33 @@ async def get_hyperparameters(model_name: str):
         raise HTTPException(status_code=400, detail="Unsupported model name.")
 
     return {"default_hyperparameters": default_hyperparameters[model_name]}
+
+
+@router.get("/download-model")
+async def download_model(filename: str):
+    """
+    Download a trained model (.pkl) from Hugging Face and return it as a downloadable file.
+    Example:
+    /download-model?filename=139e5062-558a-4052-838b-4ad316c5878a_RandomForestClassifier_20251101_160025.pkl
+    """
+    try:
+        repo_id = "prthm20/ZeoMl"  # your dataset repo
+        local_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type="dataset",
+            token=HF_TOKEN
+        )
+
+        if not os.path.exists(local_path):
+            raise HTTPException(status_code=404, detail="Model file not found.")
+
+        return FileResponse(
+            path=local_path,
+            filename=filename,
+            media_type="application/octet-stream"
+        )
+
+    except Exception as e:
+        logger.error(f"Model download failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Download failed: {e}")
