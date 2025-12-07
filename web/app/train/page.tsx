@@ -2,25 +2,38 @@
 
 import React, { useState, useEffect } from "react";
 import axios, { AxiosError } from "axios";
+import { useSession } from "@/context/SessionContext";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 
-// Type for hyperparameters (string keys with string or number values)
 type Hyperparams = Record<string, string | number | boolean>;
 
-// Type for training result
 interface TrainingResult {
+  status: string;
   problem_type: string;
+  target_column: string;
   model_name: string;
-  metrics: Record<string, number>;
+  hyperparameters_used: Hyperparams;
+  metrics: Record<string, any>;
+  hf_status?: string;
+  hf_filename?: string | null;
+  huggingface_download_url?: string | null;
   model_path: string;
 }
 
 export default function TrainModelPage() {
-  const [file, setFile] = useState<File | null>(null);
+  const { sessionId } = useSession(); // 🔥 Global session
+  const [targetCol, setTargetCol] = useState<string>("");
   const [model, setModel] = useState<string>("");
   const [hyperparams, setHyperparams] = useState<Hyperparams>({});
   const [results, setResults] = useState<TrainingResult | null>(null);
@@ -34,7 +47,7 @@ export default function TrainModelPage() {
     "KMeans",
   ];
 
-  // Fetch hyperparameters when model changes
+  // Fetch default hyperparameters when user selects model
   useEffect(() => {
     if (!model) return;
 
@@ -46,7 +59,6 @@ export default function TrainModelPage() {
       .catch(() => setHyperparams({}));
   }, [model]);
 
-  // Update individual hyperparameter values
   const handleParamChange = (key: string, value: string) => {
     setHyperparams((prev) => ({
       ...prev,
@@ -55,22 +67,28 @@ export default function TrainModelPage() {
   };
 
   const handleTrain = async () => {
-    if (!file || !model) {
-      alert("Please upload a CSV and select a model first!");
+    if (!sessionId) {
+      alert("⚠️ No active session. Please clean and save your dataset first!");
+      return;
+    }
+
+    if (!model) {
+      alert("Please select a model first!");
       return;
     }
 
     setLoading(true);
+
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("session_id", sessionId);
+    if (targetCol.trim()) formData.append("target", targetCol.trim());
     formData.append("model_choice", model);
     formData.append("params", JSON.stringify(hyperparams));
 
     try {
       const res = await axios.post<TrainingResult>(
         "http://localhost:7860/train-model",
-        formData,
-        { headers: { "Content-Type": "multipart/form-data" } }
+        formData
       );
       setResults(res.data);
     } catch (err) {
@@ -86,18 +104,33 @@ export default function TrainModelPage() {
       <Card className="max-w-3xl mx-auto shadow-lg rounded-2xl border border-gray-200 dark:border-gray-700">
         <CardHeader>
           <CardTitle className="text-2xl font-semibold text-center">
-            🧠 Model Training Dashboard
+            🧠 Train Machine Learning Model
           </CardTitle>
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {/* File Upload */}
+          {/* Session ID (read-only) */}
           <div>
-            <Label className="text-sm font-medium">Upload CSV File</Label>
+            <Label className="text-sm font-medium">Active Session ID</Label>
             <Input
-              type="file"
-              accept=".csv"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              value={sessionId || ""}
+              readOnly
+              className="mt-2 bg-gray-200 dark:bg-gray-800 cursor-not-allowed"
+            />
+            <p className="text-xs mt-1 text-gray-500">
+              This identifies your cleaned dataset on Hugging Face.
+            </p>
+          </div>
+
+          {/* Target column (optional) */}
+          <div>
+            <Label className="text-sm font-medium">
+              Target Column (optional)
+            </Label>
+            <Input
+              placeholder="Leave empty to use the last column"
+              value={targetCol}
+              onChange={(e) => setTargetCol(e.target.value)}
               className="mt-2"
             />
           </div>
@@ -107,7 +140,7 @@ export default function TrainModelPage() {
             <Label className="text-sm font-medium">Select Model</Label>
             <Select onValueChange={setModel}>
               <SelectTrigger className="w-full mt-2">
-                <SelectValue placeholder="Choose a model" />
+                <SelectValue placeholder="Pick a model" />
               </SelectTrigger>
               <SelectContent>
                 {modelOptions.map((m) => (
@@ -119,15 +152,15 @@ export default function TrainModelPage() {
             </Select>
           </div>
 
-          {/* Dynamic Hyperparameter Inputs */}
+          {/* Hyperparameters UI */}
           {Object.keys(hyperparams).length > 0 && (
             <div className="space-y-3">
               <Label className="text-sm font-medium">Hyperparameters</Label>
               {Object.entries(hyperparams).map(([key, val]) => (
                 <div key={key} className="flex items-center gap-3">
-                  <Label className="w-1/3 text-gray-700 dark:text-gray-300">{key}</Label>
+                  <Label className="w-1/3">{key}</Label>
                   <Input
-                    value={typeof val === "boolean" ? String(val) : val ?? ""}
+                    value={String(val)}
                     onChange={(e) => handleParamChange(key, e.target.value)}
                     className="w-2/3"
                   />
@@ -137,18 +170,44 @@ export default function TrainModelPage() {
           )}
 
           {/* Train Button */}
-          <Button onClick={handleTrain} disabled={loading} className="w-full mt-4">
-            {loading ? "Training..." : "🚀 Train Model"}
+          <Button
+            onClick={handleTrain}
+            disabled={loading}
+            className="w-full mt-4"
+          >
+            {loading ? "⏳ Training..." : "🚀 Train Model"}
           </Button>
 
-          {/* Results Display */}
+          {/* Results */}
           {results && (
-            <div className="mt-6 text-black bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
-              <h2 className=" text-lg text-black font-semibold mb-2">✅ Training Results</h2>
-              <p><strong>Problem Type:</strong> {results.problem_type}</p>
+            <div className="mt-6 bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
+              <h2 className="text-lg font-semibold mb-2">📊 Results</h2>
+
               <p><strong>Model:</strong> {results.model_name}</p>
-              <p><strong>Metrics:</strong> {JSON.stringify(results.metrics, null, 2)}</p>
-              <p><strong>Model Path:</strong> {results.model_path}</p>
+              <p><strong>Type:</strong> {results.problem_type}</p>
+
+              <pre className="text-xs bg-gray-200 dark:bg-gray-900 p-2 rounded mt-2 whitespace-pre-wrap">
+                {JSON.stringify(results.metrics, null, 2)}
+              </pre>
+
+              {results.huggingface_download_url && (
+                <p className="mt-2 text-sm">
+                  <strong>📥 Download Model:</strong>{" "}
+                  <a
+                    href={results.huggingface_download_url}
+                    className="text-blue-500 underline"
+                    target="_blank"
+                  >
+                    HuggingFace File
+                  </a>
+                </p>
+              )}
+
+              {results.model_path && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Server file: {results.model_path}
+                </p>
+              )}
             </div>
           )}
         </CardContent>
