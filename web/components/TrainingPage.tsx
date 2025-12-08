@@ -23,7 +23,7 @@ interface TrainingResult {
   target_column: string;
   model_name: string;
   hyperparameters_used: Hyperparams;
-  metrics: Record<string, any>; // can contain nested objects
+  metrics: Record<string, unknown>; // can contain nested objects
   hf_status?: string;
   hf_filename?: string | null;
   huggingface_download_url?: string | null;
