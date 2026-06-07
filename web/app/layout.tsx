@@ -18,6 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  icons: {
+    icon: "/icon.png",
+  },
   title: "Zero ML",
   description: "LangFlow for ML",
 };
